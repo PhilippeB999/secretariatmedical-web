@@ -2,9 +2,10 @@
    Au premier chargement, il met en cache tous les fichiers de l'app.
    Ensuite, l'app se lance sans réseau, exactement comme une app native. */
 
-const CACHE = "secretariatmedicalquest-v2";
+const CACHE = "secretariatmedicalquest-v3";
 const ASSETS = [
   "index.html",
+  "theme-saisonnier.js",
   "app.js",
   "data.js",
   "style.css",

@@ -577,14 +577,24 @@ function progressPct() {
   return Math.round((state.badges.length / COMPETENCIES.length) * 100);
 }
 
-/* ------------------ Essai gratuit de 7 jours + code d'accès (local) ------------------ */
+/* ------------------ Essai gratuit de 7 jours + code d'accès (serveur) ------------------
+   Les codes valides ne sont JAMAIS envoyés au navigateur : ils vivent dans une
+   table Supabase protégée par RLS (voir supabase_licences.sql), et l'app ne
+   peut qu'appeler la fonction verifier_licence(code, app), qui renvoie vrai/faux
+   pour LE code soumis — jamais la liste complète. Une fois qu'un code a été
+   accepté une fois (state.accessCode non vide), l'appareil reste licencié
+   hors ligne sans revalider à chaque lancement (comme le code de classe). */
 
 const TRIAL_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // essai gratuit de 7 jours
-const ACCESS_CODES = ["SECMED-2026-AT71"]; // code(s) fourni(s) au centre de formation après achat de la licence
-const ACCESS_CODE = ACCESS_CODES[0]; // code maître (rétrocompatibilité)
+/* Identifiant de CETTE app côté Supabase. Il cadre la portée du code : la
+   fonction verifier_licence ne dit oui que si le code couvre cette app-ci
+   (colonne `apps` de la table licences ; NULL = forfait suite complète).
+   Sans ce paramètre, toutes les apps partageant le même projet Supabase
+   seraient déverrouillées par n'importe quel code valide d'une autre app. */
+const APP_ID = "secretariatmedical";
 
 function isAccessGranted() {
-  if (state.accessCode && ACCESS_CODES.includes(state.accessCode.trim().toUpperCase())) return true;
+  if (state.accessCode) return true;
   if (!state.firstLaunchDate) return true; // sécurité : ne jamais bloquer si la date est absente
   return (Date.now() - state.firstLaunchDate) < TRIAL_DURATION_MS;
 }
@@ -593,13 +603,42 @@ function isAccessGranted() {
    Modèle d'affaires : sans licence (essai, démo, URL nue), l'usager accède
    aux FREE_COMPETENCIES premières compétences (tous les paliers). Les
    compétences suivantes (ordre > FREE_COMPETENCIES) restent VISIBLES mais
-   verrouillées « premium ». La licence (accessCode === ACCESS_CODE) débloque
+   verrouillées « premium ». La licence (code validé par Supabase) débloque
    tout. Ce verrou est INDÉPENDANT de l'essai de 7 jours : il ne dépend que
    de isLicensed(). */
 const FREE_COMPETENCIES = 3; // nombre de compétences gratuites sans licence (ajustable)
 
 function isLicensed() {
-  return !!(state.accessCode && ACCESS_CODES.includes(state.accessCode.trim().toUpperCase()));
+  return !!state.accessCode;
+}
+
+/* Interroge la fonction security-definer verifier_licence pour un code saisi.
+   Retourne { ok:true } si valide POUR CETTE APP, ou { ok:false, reason } où
+   reason ∈ "invalid" (le serveur a répondu : code inconnu, inactif, ou valide
+   pour une autre app seulement), "offline" (pas de réseau ou erreur serveur —
+   on ne peut pas confirmer, donc on REFUSE plutôt que d'accepter à l'aveugle :
+   une licence donne accès à du contenu payant), ou "not-configured" (la
+   fonction n'existe pas encore côté Supabase — signal clair pour Philippe
+   s'il n'a pas encore exécuté supabase_licences.sql). */
+async function verifyLicenseCode(code) {
+  if (!navigator.onLine) return { ok: false, reason: "offline" };
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/verifier_licence`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_KEY,
+        "Authorization": "Bearer " + SUPABASE_KEY
+      },
+      body: JSON.stringify({ p_code: code, p_app: APP_ID })
+    });
+    if (res.status === 404) return { ok: false, reason: "not-configured" };
+    if (!res.ok) return { ok: false, reason: "offline" };
+    const valid = await res.json();
+    return valid === true ? { ok: true } : { ok: false, reason: "invalid" };
+  } catch (e) {
+    return { ok: false, reason: "offline" };
+  }
 }
 
 /* true = compétence bloquée faute de licence (visible mais non jouable). */
@@ -667,16 +706,19 @@ function renderAccessGate() {
   </div>`;
 }
 
-function submitAccessCode() {
+async function submitAccessCode() {
   const code = (draftAccessCode || "").trim();
   if (!code) return;
-  if (ACCESS_CODES.includes(code.toUpperCase())) {
-    state.accessCode = code;
+  accessCodeStatus = "checking";
+  render();
+  const result = await verifyLicenseCode(code);
+  if (result.ok) {
+    state.accessCode = code.toUpperCase();
     accessCodeStatus = null;
     saveState();
     render();
   } else {
-    accessCodeStatus = "invalid";
+    accessCodeStatus = result.reason;
     render();
   }
 }

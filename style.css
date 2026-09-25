@@ -683,3 +683,8 @@ button {
 .privacy-footer{text-align:center;padding:14px 0 22px;}
 .privacy-footer a{font-size:12px;color:var(--muted);text-decoration:none;opacity:.75;letter-spacing:.02em;}
 .privacy-footer a:hover{opacity:1;text-decoration:underline;}
+
+.premium-dialog #premiumCodeInput { font-size: 18px; letter-spacing: 1.5px; padding: 12px 10px; margin-top: 6px; }
+.premium-dialog .premium-or { font-size: 12px; color: var(--muted); margin: 14px 0 4px; text-transform: uppercase; letter-spacing: 1px; }
+.premium-dialog .cta,
+.premium-dialog .secondary { display: block; width: 100%; box-sizing: border-box; text-align: center; }
